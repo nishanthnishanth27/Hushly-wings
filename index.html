@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Hushly Wings</title>
+
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="apple-touch-icon" href="logo.png">
+  
+  <link rel="manifest" href="manifest.json">
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+<!-- Monetag script is loaded on-demand only when revive button is clicked -->
+
+
+
+
+  <!-- ╔═══════════════════════════════════════════════════════╗
+       ║  FIREBASE — Replace with YOUR config                  ║
+       ║  Firebase Console → Project Settings → Web App        ║
+       ╚═══════════════════════════════════════════════════════╝ -->
+  <script type="module">
+    // Register Service Worker for PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(() => {
+    console.log("Service Worker Registered");
+  });
+}
+
+// ... your existing PWA button logic follows ...
+
+    import { initializeApp }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+   import { getDatabase, ref, set, push, query, orderByChild, limitToLast, get }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+      from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+    // 🔴 REPLACE THIS ENTIRE BLOCK WITH YOUR FIREBASE CONFIG
+    const firebaseConfig = {
+  apiKey: "AIzaSyAw2i1LrIfnF2yYdXMIpolLA66Y4sYyGdk",
+  authDomain: "hushly-wings.firebaseapp.com",
+  databaseURL: "https://hushly-wings-default-rtdb.firebaseio.com",
+  projectId: "hushly-wings",
+  storageBucket: "hushly-wings.firebasestorage.app",
+  messagingSenderId: "272017498391",
+  appId: "1:272017498391:web:201d145cc04291dc295752",
+  measurementId: "G-HBR2R4X5NF"
+};
+
+    const app      = initializeApp(firebaseConfig);
+    const db       = getDatabase(app);
+    const auth     = getAuth(app);
+    const provider = new GoogleAuthProvider();
+
+    window.fbSignInGoogle = async () => {
+      try { const r = await signInWithPopup(auth, provider); return r.user; }
+      catch(e) { console.warn('Login failed:',e); return null; }
+    };
+    window.fbSignOut = () => signOut(auth);
+    window.fbOnAuth  = (cb) => onAuthStateChanged(auth, cb);
+
+        window.fbSubmitScore = async (name, score) => {
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+            alert("❌ Error: You are not signed in!");
+            return;
+        }
+
+        const uid = user.uid;
+        const scoreRef = ref(db, 'scores/' + uid);
+        
+        // 1. Get existing score
+        // If this fails, the catch block below will trigger
+        const snapshot = await get(scoreRef);
+        
+        // 2. Check if new score is higher
+        if (!snapshot.exists() || score > snapshot.val().score) {
+          await set(scoreRef, { 
+            name: name.toUpperCase().slice(0, 12), 
+            score: score, 
+            ts: Date.now() 
+          });
+          alert("✅ SUCCESS: Database Updated!"); // If you see this, it actually worked
+        } else {
+          alert("⚠️ Score too low: Your previous high score is better.");
+        }
+      } catch(e) { 
+        // THIS IS THE IMPORTANT PART
+        alert("❌ DATABASE ERROR: " + e.message); 
+      }
+    };
+
+
+        window.fbGetLeaderboard = async () => {
+      try {
+        // Query the top 10 scores
+        const q = query(ref(db, 'scores'), orderByChild('score'), limitToLast(10));
+        const snap = await get(q);
+
+        // DEBUG: Check if data exists
+        if (!snap.exists()) {
+           // If you see this, the database is actually empty (or path is wrong)
+           alert("⚠️ Connected, but found 0 scores in database."); 
+           return [];
+        }
+
+        const rows = [];
+        snap.forEach(c => rows.push(c.val()));
+        return rows.sort((a,b) => b.score - a.score);
+        
+      } catch(e) {
+        // This will show you the real error (like Permission Denied)
+        alert("❌ LEADERBOARD ERROR: " + e.message); 
+        return [];
+      }
+    };
+
+    // ── COINS
+    window.fbSaveCoins = async (coins) => {
+      try {
+        const user = auth.currentUser;
+        if (!user) return;
+        await set(ref(db, 'coins/' + user.uid), { coins, ts: Date.now() });
+      } catch(e) { console.warn('fbSaveCoins error:', e); }
+    };
+    window.fbGetCoins = async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) return 0;
+        const snap = await get(ref(db, 'coins/' + user.uid));
+        return snap.exists() ? (snap.val().coins || 0) : 0;
+      } catch(e) { console.warn('fbGetCoins error:', e); return 0; }
+    };
+
+    // ── UNLOCKED CHARACTERS
+    window.fbSaveUnlocked = async (unlocked) => {
+      try {
+        const user = auth.currentUser;
+        if (!user) return;
+        await set(ref(db, 'unlocked/' + user.uid), { chars: JSON.stringify(unlocked), ts: Date.now() });
+      } catch(e) { console.warn('fbSaveUnlocked error:', e); }
+    };
+    window.fbGetUnlocked = async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) return [];
+        const snap = await get(ref(db, 'unlocked/' + user.uid));
+        return snap.exists() ? JSON.parse(snap.val().chars || '[]') : [];
+      } catch(e) { console.warn('fbGetUnlocked error:', e); return []; }
+    };
+
+  </script>
+
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap" rel="stylesheet">
+
+  <style>
+    /* ════ RESET ════ */
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    html, body {
+      width:100%; height:100%; overflow:hidden;
+      background:#1a0533;
+      font-family:'Fredoka One',cursive;
+      -webkit-tap-highlight-color:transparent;
+      touch-action:none;
+    }
+
+    /* ════ STARS ════ */
+    .stars-bg { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+    .star { position:absolute; border-radius:50%; background:#fff; animation:twinkle var(--dur,2s) infinite alternate; }
+    @keyframes twinkle { from{opacity:.15} to{opacity:1} }
+
+    /* ════ SCREENS ════ */
+    .screen {
+      position:absolute; inset:0;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      pointer-events:auto; z-index:20;
+      background:linear-gradient(160deg,#0f0c29,#302b63,#24243e);
+      padding:20px; overflow:hidden;
+    }
+    .hidden { display:none !important; }
+
+    /* ════ LOGO ════ */
+    .logo-wrap { text-align:center; margin-bottom:6px; }
+    .logo-title {
+      font-size:clamp(2.6rem,10vw,5.5rem);
+      color:#FFD700;
+      text-shadow:4px 4px 0 #FF4500, 0 0 40px rgba(255,165,0,.8);
+      -webkit-text-stroke:2px rgba(255,255,255,.2);
+      letter-spacing:4px; line-height:1;
+    }
+    .logo-sub {
+      color:rgba(255,255,255,.5); font-size:clamp(.58rem,2.2vw,.95rem);
+      letter-spacing:5px; margin-top:4px;
+    }
+
+    /* ════ BUTTONS — base ════ */
+    .menu-btn {
+      border:none; cursor:pointer;
+      font-family:'Fredoka One',cursive; letter-spacing:2px;
+      transition:transform .12s, box-shadow .12s;
+      position:relative; overflow:hidden;
+      -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+      display:block;
+    }
+    .menu-btn::after {
+      content:''; position:absolute; inset:0;
+      background:linear-gradient(180deg,rgba(255,255,255,.15) 0%,transparent 60%);
+      pointer-events:none;
+    }
+
+    .btn-play {
+      background:linear-gradient(135deg,#FF416C,#FF4B2B);
+      color:#FFF; border-radius:50px;
+      padding:clamp(12px,2.5vh,18px) clamp(36px,10vw,60px);
+      font-size:clamp(1.15rem,4vw,1.8rem); margin:8px auto;
+      box-shadow:0 7px 0 #8B0000,0 0 28px rgba(255,65,44,.5);
+      width:clamp(200px,72vw,300px);
+    }
+    .btn-play:active { transform:translateY(4px); box-shadow:0 2px 0 #8B0000; }
+
+    .btn-scores {
+      background:linear-gradient(135deg,#7B2FBE,#5C17A0);
+      color:#FFF; border-radius:50px;
+      padding:clamp(10px,2vh,14px) clamp(28px,8vw,44px);
+      font-size:clamp(1rem,3.5vw,1.4rem); margin:7px auto;
+      box-shadow:0 6px 0 #300060,0 0 18px rgba(123,47,190,.5);
+      width:clamp(180px,62vw,260px);
+    }
+    .btn-scores:active { transform:translateY(3px); box-shadow:0 2px 0 #300060; }
+
+    .btn-settings {
+      background:linear-gradient(135deg,#1565C0,#0D47A1);
+      color:#FFF; border-radius:50px;
+      padding:clamp(10px,2vh,14px) clamp(28px,8vw,44px);
+      font-size:clamp(1rem,3.5vw,1.4rem); margin:7px auto;
+      box-shadow:0 6px 0 #001a6b,0 0 18px rgba(21,101,192,.5);
+      width:clamp(180px,62vw,260px);
+    }
+    .btn-settings:active { transform:translateY(3px); box-shadow:0 2px 0 #001a6b; }
+
+    .btn-secondary {
+      background:linear-gradient(135deg,#2c3e50,#3d5166);
+      color:#CCC; border-radius:50px;
+      padding:clamp(9px,1.8vh,12px) clamp(24px,7vw,36px);
+      font-size:clamp(.9rem,2.8vw,1.1rem); margin:6px auto;
+      box-shadow:0 5px 0 #111;
+    }
+    .btn-secondary:active { transform:translateY(3px); box-shadow:0 1px 0 #111; }
+
+    .btn-gold {
+      background:linear-gradient(135deg,#f7971e,#FFD700);
+      color:#1a0533; border-radius:50px;
+      padding:clamp(10px,2vh,14px) clamp(28px,7vw,44px);
+      font-size:clamp(.95rem,3.2vw,1.3rem); margin:6px auto;
+      box-shadow:0 6px 0 #7d5000;
+    }
+    .btn-gold:active { transform:translateY(3px); box-shadow:0 2px 0 #7d5000; }
+
+    /* Google button */
+    .btn-google {
+      background:#fff; color:#3c4043; border-radius:50px;
+      padding:clamp(10px,1.8vh,13px) clamp(18px,5vw,28px);
+      font-size:clamp(.88rem,2.8vw,1.05rem); margin:6px auto;
+      box-shadow:0 5px 0 #bbb,0 0 0 1px #ddd;
+      display:flex; align-items:center; gap:10px; justify-content:center;
+      width:clamp(200px,68vw,260px);
+    }
+    .btn-google:active { transform:translateY(3px); box-shadow:0 1px 0 #bbb; }
+    .btn-google svg { width:20px; height:20px; flex-shrink:0; }
+
+    /* ════ USER BAR ════ */
+    #user-bar {
+      position:absolute; top:12px; right:14px;
+      display:flex; align-items:center; gap:8px; z-index:30;
+    }
+    #user-avatar {
+      width:36px; height:36px; border-radius:50%;
+      border:2px solid #FFD700; display:none;
+      box-shadow:0 0 10px rgba(255,215,0,.5);
+    }
+    #user-name {
+      color:#FFD700; font-size:.88rem; max-width:100px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:none;
+    }
+    #btn-signout {
+      background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.2);
+      color:#fff; padding:5px 12px; font-size:.75rem; border-radius:30px;
+      cursor:pointer; font-family:'Fredoka One',cursive; display:none;
+    }
+
+    /* ════ HUD ════ */
+    #game-ui { position:absolute; inset:0; pointer-events:none; z-index:10; }
+    #score-display {
+      position:absolute; top:16px; left:16px;
+      color:#FFD700; font-size:clamp(14px,3.5vw,26px);
+      background:rgba(0,0,0,.5); backdrop-filter:blur(6px);
+      padding:7px 18px; border-radius:40px;
+      border:2px solid rgba(255,215,0,.35);
+      text-shadow:0 2px 8px rgba(0,0,0,.7);
+    }
+    #speed-display {
+      position:absolute; top:16px; left:50%; transform:translateX(-50%);
+      color:#FF6BFF; font-size:clamp(11px,2.8vw,18px);
+      background:rgba(0,0,0,.45); backdrop-filter:blur(6px);
+      padding:7px 16px; border-radius:40px;
+      border:2px solid rgba(255,107,255,.35);
+      white-space:nowrap; pointer-events:none;
+    }
+    #lift-warning {
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      color:#FF4444; background:rgba(255,255,255,.94);
+      padding:clamp(12px,3vh,20px) clamp(18px,5vw,30px);
+      border:4px solid #FF4444; border-radius:20px;
+      display:none; text-align:center; font-size:clamp(14px,4vw,22px);
+      box-shadow:0 8px 30px rgba(255,0,0,.4);
+      animation:warnPulse .5s infinite alternate; pointer-events:none;
+    }
+    @keyframes warnPulse {
+      from{box-shadow:0 8px 30px rgba(255,0,0,.4)}
+      to{box-shadow:0 8px 50px rgba(255,0,0,.9)}
+    }
+
+    /* Speed bar */
+    #speed-bar-wrap {
+      position:absolute; bottom:clamp(12px,3vh,20px); left:clamp(12px,3vw,20px);
+      display:flex; flex-direction:column; gap:4px; z-index:11; pointer-events:none;
+    }
+    #speed-bar-label { color:rgba(255,255,255,.45); font-size:clamp(7px,1.8vw,11px); letter-spacing:2px; }
+    #speed-bar-track {
+      width:clamp(70px,18vw,130px); height:7px;
+      background:rgba(255,255,255,.12); border-radius:10px; overflow:hidden;
+    }
+    #speed-bar-fill { height:100%; width:10%; border-radius:10px; background:linear-gradient(90deg,#00CFFF,#FF6BFF); transition:width .4s,background .4s; }
+
+    /* ════ COUNTDOWN ════ */
+    #countdown-screen {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      background:rgba(0,0,0,.55); backdrop-filter:blur(4px); z-index:50; pointer-events:none;
+    }
+    #countdown-text {
+      font-size:clamp(90px,22vw,200px); color:#FFF;
+      text-shadow:0 0 40px #FF6BFF,0 10px 0 #9B00D3;
+      animation:cBounce .5s infinite alternate;
+    }
+    @keyframes cBounce { from{transform:scale(1)} to{transform:scale(1.12)} }
+
+    /* ════ GAME OVER ════ */
+    #game-over-screen { background:linear-gradient(160deg,#200010,#6b0019,#200010) !important; }
+    .crashed-title {
+      font-size:clamp(2.4rem,9vw,4.5rem); color:#FF4444;
+      text-shadow:4px 4px 0 #8B0000,0 0 60px rgba(255,68,68,.8);
+      -webkit-text-stroke:2px rgba(255,255,255,.12);
+      animation:shakeCrash .3s infinite;
+    }
+    @keyframes shakeCrash { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
+    #final-score-go { color:#FFD700; font-size:clamp(1.2rem,4.5vw,2rem); margin:8px 0 14px; }
+    #name-input-wrap { margin:8px 0; }
+    #player-name-input {
+      font-family:'Fredoka One',cursive;
+      font-size:clamp(.95rem,3.5vw,1.4rem); padding:11px 18px;
+      border-radius:30px; border:3px solid #FF4444;
+      background:rgba(255,255,255,.1); color:#FFF;
+      text-align:center; letter-spacing:4px; text-transform:uppercase;
+      outline:none; width:clamp(190px,70vw,280px);
+    }
+    #player-name-input::placeholder { color:rgba(255,255,255,.3); }
+
+    /* ════ SCORES SCREEN ════ */
+    #scores-screen { background:linear-gradient(160deg,#0f0c29,#302b63,#24243e) !important; }
+    .scores-title {
+      font-size:clamp(1.7rem,6vw,3rem); color:#FFD700;
+      text-shadow:3px 3px 0 #FF4500,0 0 28px rgba(255,165,0,.6); margin-bottom:16px;
+    }
+    #leaderboard-list {
+      width:clamp(270px,88vw,400px); max-height:clamp(220px,42vh,380px);
+      overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(255,215,0,.3) transparent;
+    }
+    .lb-row {
+      display:flex; justify-content:space-between; align-items:center;
+      background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1);
+      padding:9px 16px; margin:5px 0; border-radius:12px;
+      color:#FFF; font-size:clamp(.85rem,2.8vw,1.1rem);
+    }
+    .lb-row.top1{background:linear-gradient(90deg,rgba(255,215,0,.25),rgba(255,215,0,.04));border-color:#FFD700;color:#FFD700;}
+    .lb-row.top2{background:linear-gradient(90deg,rgba(192,192,192,.2),transparent);border-color:#C0C0C0;color:#DDD;}
+    .lb-row.top3{background:linear-gradient(90deg,rgba(205,127,50,.2),transparent);border-color:#CD7F32;color:#E8B87B;}
+    .lb-rank{font-size:1.1rem;width:32px;}
+    .lb-name{flex:1;padding:0 8px;}
+    .lb-score{color:#FFD700;}
+    #lb-loading{color:rgba(255,255,255,.5);font-size:1rem;padding:22px;text-align:center;}
+
+    /* ════ SETTINGS SCREEN ════ */
+    #settings-screen { background:linear-gradient(160deg,#0f0c29,#1a2a50,#0f2040) !important; }
+    .settings-title {
+      font-size:clamp(1.6rem,5.5vw,2.8rem); color:#00CFFF;
+      text-shadow:3px 3px 0 #005577,0 0 28px rgba(0,207,255,.5); margin-bottom:16px;
+    }
+    .setting-card {
+      background:rgba(255,255,255,.07); border:2px solid rgba(255,255,255,.12);
+      border-radius:18px; padding:clamp(14px,3vh,20px) clamp(16px,4vw,24px); margin:8px 0;
+      width:clamp(270px,85vw,400px); backdrop-filter:blur(8px);
+    }
+    .setting-label { color:#FFF; font-size:clamp(.9rem,3vw,1.15rem); margin-bottom:12px; text-align:center; opacity:.85; }
+    .toggle-row { display:flex; gap:8px; justify-content:center; }
+    .toggle-btn {
+      flex:1; padding:clamp(10px,2vh,14px) 8px; border-radius:12px;
+      border:2px solid transparent; font-family:'Fredoka One',cursive;
+      font-size:clamp(.8rem,2.5vw,1rem); cursor:pointer;
+      transition:all .2s; text-align:center; color:#FFF;
+      background:rgba(255,255,255,.08); touch-action:manipulation;
+    }
+    .toggle-btn.active {
+      background:linear-gradient(135deg,#00CFFF,#0080FF);
+      border-color:#00CFFF; box-shadow:0 4px 20px rgba(0,207,255,.4);
+    }
+    .setting-note { color:rgba(255,255,255,.38); font-size:.72rem; text-align:center; margin-top:8px; letter-spacing:1px; }
+
+    /* ════ CAMERA + HAND DOT ════ */
+    #input_video {
+      position:absolute;
+      bottom:clamp(12px,2.5vh,20px); right:clamp(12px,2.5vw,20px);
+      width:clamp(100px,25vw,200px); height:clamp(75px,19vw,150px);
+      transform:scaleX(-1); border:3px solid rgba(255,255,255,.22);
+      border-radius:14px; z-index:5; background:#000;
+      box-shadow:0 6px 20px rgba(0,0,0,.5); transition:opacity .3s;
+    }
+    #input_video.cam-hidden { opacity:0; pointer-events:none; }
+    #cam-label {
+      position:absolute;
+      right:clamp(12px,2.5vw,20px);
+      bottom:calc(clamp(75px,19vw,150px) + clamp(12px,2.5vh,20px) + 6px);
+      color:rgba(255,255,255,.5); font-size:clamp(7px,1.8vw,11px); letter-spacing:2px;
+      z-index:6; text-align:center; width:clamp(100px,25vw,200px);
+      transition:opacity .3s;
+    }
+    #cam-label.cam-hidden { opacity:0; }
+    #hand-dot {
+      position:absolute; width:18px; height:18px;
+      background:radial-gradient(circle,#00FFFF,#0080FF);
+      border-radius:50%; z-index:15; pointer-events:none; display:none;
+      box-shadow:0 0 12px #00FFFF,0 0 24px rgba(0,255,255,.5);
+      transform:translate(-50%,-50%);
+    }
+
+    /* ════ VIRTUAL JOYSTICK ════ */
+    #joystick-zone {
+      position:absolute; inset:0; z-index:8;
+      pointer-events:auto; display:none;
+    }
+    #joystick-outer {
+      position:absolute;
+      width:clamp(100px,26vw,160px); height:clamp(100px,26vw,160px);
+      border-radius:50%;
+      background:rgba(255,255,255,.07); border:3px solid rgba(255,255,255,.18);
+      backdrop-filter:blur(4px);
+      left:50%; bottom:clamp(28px,8vh,70px); transform:translateX(-50%);
+      box-shadow:0 0 30px rgba(0,207,255,.12);
+    }
+    #joystick-inner {
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      width:clamp(40px,10vw,64px); height:clamp(40px,10vw,64px);
+      border-radius:50%;
+      background:radial-gradient(circle,#00CFFF,#0050AA);
+      border:2px solid rgba(255,255,255,.3);
+      box-shadow:0 0 18px rgba(0,207,255,.5); pointer-events:none;
+    }
+    #joy-arrows {
+      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+      pointer-events:none; opacity:.2; font-size:clamp(8px,2vw,13px); color:#fff;
+    }
+    .ja { position:abs
